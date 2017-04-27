@@ -3,7 +3,8 @@ import pandas as pd
 import cv2
 import pickle
 
-def import_data_from_sample_drive(data_path, use_lateral=False): 
+def import_data_from_sample_drive(data_path,
+                                  use_lateral=False, lat_st_corr=0.25): 
 
     csv_file_path = data_path + 'driving_log.csv'
     img_folder_path = data_path + 'IMG/'
@@ -33,25 +34,30 @@ def import_data_from_sample_drive(data_path, use_lateral=False):
 
     X_train = np.array(images_center + images_left + images_right)
     if use_lateral:
-        y_train = np.concatenate([steering_angles]*3)
+        y_train = np.concatenate([
+            steering_angles, 
+            steering_angles + lat_st_corr, 
+            steering_angles - lat_st_corr
+        ])
     else:
         y_train = steering_angles.copy()
     
     return X_train, y_train
 
-def import_data_from_n_sample_drives(data_path_list, load_cached=False, save_data_to_pickle=True):
+def import_data_from_n_sample_drives(data_path_list, 
+                                     use_lateral=False, lat_st_corr=0.25, 
+                                     load_cached=False, save_data_to_pickle=True):
     
     if load_cached:
         X_train = pickle.load(open('X_train.p', 'rb'))
         y_train = pickle.load(open('y_train.p', 'rb'))
-        
         return X_train, y_train
         
     x_list = list()
     y_list = list()
     
     for data_path in data_path_list:
-        x, y = import_data_from_sample_drive(data_path)
+        x, y = import_data_from_sample_drive(data_path, use_lateral=use_lateral, lat_st_corr=lat_st_corr)
         x_list.append(x)
         y_list.append(y)
     
@@ -77,3 +83,24 @@ def flipping_augmentation(X_train, y_train):
     y_res = np.concatenate([y_train, y_train_flipped])
 
     return x_res, y_res
+
+def get_uniform_y_downsample_indices(y, bins=50, max_samples=200):
+    y_binned = pd.Series(
+        np.digitize(
+            np.abs(y), 
+            bins=np.linspace(0,1,num=bins)
+        )
+    )
+    
+    selected_ix = list()
+    for i in range(1, bins + 1):
+        bin_samples = y_binned[y_binned == i].index
+        n_bin_samples = bin_samples.size
+        if n_bin_samples > 0:
+            selected_ix.append(np.random.choice(bin_samples, size=np.min([n_bin_samples, max_samples])))
+            
+    return np.concatenate(selected_ix)
+
+def downsample_data(X, y, bins=50, max_samples=200):
+    selected_ix = get_uniform_y_downsample_indices(y, bins, max_samples)
+    return X[selected_ix], y[selected_ix]
