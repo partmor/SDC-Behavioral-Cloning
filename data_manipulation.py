@@ -1,8 +1,32 @@
 from skimage.io import imread
+from skimage.exposure import adjust_gamma
 import numpy as np
 import pandas as pd
 from sklearn.utils import shuffle
 import re
+import cv2
+
+def out_of_pipeline_preprocessing(img):
+    output_img = cv2.cvtColor(img, cv2.COLOR_RGB2YUV)
+    return output_img
+
+
+def downsample_dataset(dataset, num_bins, thresh='mean'):
+    selection_list = list()
+    y = dataset['steering']
+    y_abs = np.abs(y)
+    hist, bins = np.histogram(y_abs, bins=num_bins)
+    bin_idx = np.digitize(np.abs(y), bins=bins)
+    if thresh=='mean':
+        thresh = hist.mean()
+    for a, b in zip(np.roll(bins, shift=1)[1:], bins[1:]):
+        idx_in_bin = y[(y_abs > a) & (y_abs <= b)].index
+        if idx_in_bin.size > 0:
+            subset = np.random.choice(idx_in_bin, size=min(int(thresh), idx_in_bin.size), replace=False)
+            selection_list.append(subset)
+    selected_idx = np.concatenate(selection_list)
+    return selected_idx
+
 
 def load_samples_log(log_path):
     df = pd.read_csv(log_path, header=None).iloc[1:]
@@ -12,11 +36,37 @@ def load_samples_log(log_path):
 
     df.columns = img_cols + status_cols
     df = df[img_cols + ['steering']]
-    # naive downsampling
-    df = df[np.abs(df['steering']) > 1/100]
+
+    # downsampling
+    selected_idx = downsample_dataset(df, num_bins=50, thresh='mean')
+    df = df.loc[selected_idx]
     return df
 
-def batch_generator(samples, samples_folder, batch_size, use_lat=True, use_flip=True, corr_angle=0.25):
+
+def apply_random_section_shading(img):
+    h, w = img.shape[0], img.shape[1]
+    [x1, x2] = np.random.choice(w, 2, replace=False)
+    k = h / (x2 - x1)
+    b = - k * x1
+    for i in range(h):
+        c = int((i - b) / k)
+        img[i, :c, :] = (img[i, :c, :] * .5).astype(np.int32)
+    return img
+
+
+def apply_random_gamma_adjust(img, low, high):
+    gamma = np.random.random_sample() * (high - low) + low
+    return adjust_gamma(img, gamma=gamma)
+
+
+def batch_generator(
+    samples, 
+    samples_folder, 
+    batch_size, 
+    use_lat=True, use_flip=True, use_shade=True, use_gamma=True,
+    corr_angle=0.25
+    ):
+
     num_samples = samples.shape[0]
     # loop forever so the generator never terminates
     while True: 
@@ -36,6 +86,7 @@ def batch_generator(samples, samples_folder, batch_size, use_lat=True, use_flip=
                 1: 0.0,
                 2: - corr_angle
             }
+
             img_list = list()
             angle_list = list()
 
@@ -52,7 +103,15 @@ def batch_generator(samples, samples_folder, batch_size, use_lat=True, use_flip=
                     image = np.fliplr(image)
                     angle = - angle
 
-                img_list.append(image)
+                # apply random brightness variations through gamma adjustment
+                if use_gamma:
+                    image = apply_random_gamma_adjust(image, low=0.4, high=1.5)
+
+                # apply random shading to a section of the image
+                if use_shade:
+                    image = apply_random_section_shading(image)
+
+                img_list.append(out_of_pipeline_preprocessing(image))
                 angle_list.append(angle)
 
 
