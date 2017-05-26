@@ -1,5 +1,4 @@
 # **CarND: Behavioral Cloning**  [![Udacity - Self-Driving Car NanoDegree](https://s3.amazonaws.com/udacity-sdc/github/shield-carnd.svg)](http://www.udacity.com/drive)
----
 [//]: # (Image References)
 
 [unbalanced_hist]: ./examples/unbalanced_hist.png
