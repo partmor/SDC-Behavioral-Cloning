@@ -61,14 +61,14 @@ In spite of following the described methodology for data collection, the dataset
 
 ![unbalanced_hist]
 
-According to the figure above, if trained with the dataset as is, the model be biased to driving in a straight line, something that we want to avoid.
+According to the figure above, if trained with the dataset as is, the model will be biased to driving in a straight line, something we want to avoid.
 
 Balancing is performed by sublampling the dataset; the samples are binned based on the **absolute value** of the steering angle, and bin size is restricted to be lower than an given amount `thresh`:
 
 ```python
-def balance_dataset(dataset, num_bins, thresh='mean'):
+def get_balanced_dataset_indices(dataset, num_bins, thresh='mean'):
     selection_list = list()
-    
+
     # the data is balanced based on the absolute value steering angle
     y = dataset['steering']
     y_abs = np.abs(y)
@@ -82,8 +82,8 @@ def balance_dataset(dataset, num_bins, thresh='mean'):
     # for each bin pick a random subsample of a maximum size given by `thresh`
     for a, b in zip(np.roll(bins, shift=1)[1:], bins[1:]):
         idx_in_bin = y[(y_abs > a) & (y_abs <= b)].index
-        if idx_in_bin.size > 0:
-            subset = np.random.choice(idx_in_bin, size=min(int(thresh), idx_in_bin.size), replace=False)
+        if len(idx_in_bin) > 0:
+            subset = np.random.choice(idx_in_bin, size=min(int(thresh), len(idx_in_bin)), replace=False)
             selection_list.append(subset)
     
     # return the indices of the balanced data
@@ -99,7 +99,7 @@ Bear in mind that balancing is performed across absolute values, since applying 
 
 ## Data augmentation
 
-Tha data balancing from the latter step yielded a 2.5k sample dataset that is clearly insufficient to train a model that could generalize well. However, the following augmentation techniques altogether enable to extend the dataset by an order of magnitude:
+Tha data balancing from the latter step yielded a 2.5k sample dataset that is clearly insufficient to train a model that could generalize well. However, the following augmentation techniques altogether enable the extension of the dataset by an order of magnitude:
 + **Left and right cameras**: each collected sample includes images taken from 3 camera positions: left, center and right. During the autonomous driving stage (test) the only input will be the center camera frame. However, the lateral cameras can still be used for training (selecting position randomly) by applying a correction `corr_angle` to the associated steering angle. This increases samples by a factor of 3.
 ```python
 cameras = {
@@ -144,7 +144,7 @@ def apply_random_section_shading(img):
 
 ![random_shade]
 
-+ **Random brightness**: the brightness of the image is altered using a range of random values for gamma adjustment. The objective is also increase robustness against lighting conditions and tarmac tonalities.
++ **Random brightness**: the brightness of the image is altered using a range of random values for gamma adjustment. The objective is to also increase robustness against lighting conditions and tarmac tonalities.
 ```python
 def apply_random_gamma_adjust(img, low, high):
     gamma = np.random.random_sample() * (high - low) + low
@@ -153,7 +153,7 @@ def apply_random_gamma_adjust(img, low, high):
 
 ![gamma]
 
-These augmentation techniques are encapsulated in a pipeline to work as a **generator**, allowing to augment data real-time, without having to worry about running out of memory for instance.
+These augmentation techniques are encapsulated in a pipeline to work as a **generator** (`batch_generator` method in `data_manipulation.py`), allowing to augment the data real-time, without having to worry about running out of memory for instance.
 
 Following this pipeline, the original dataset can be effectively augmented at least by a factor of 6, while also enhancing the robustness of the model by pertubing the images.
 
@@ -161,12 +161,12 @@ All the augmentation steps except horizontal flip are disabled to generate the v
 
 ## Preprocessing
 
-Training, validation, and eventually test data run through a common pipeline that comprises:
-+ **YUV colorspace transformation**: the images are converted from RGB to YUV colorspace, after the augmentation pipeline in the training phase, and during collection (within `drive.py`) in the testing phase. The YUV colorspace was used in [NVIDIA's](https://devblogs.nvidia.com/parallelforall/deep-learning-self-driving-cars/) end-to-end deep learning for self-driving cars project. This election is supported by the added robustness that this colorspace provides for detecting features in images for automotive applications, since varying lighting conditions are isolated effectively by the *luma* Y channel, from the color information enclosed in the U and V channels. The usage of this colorspace could somehow reduce the effectiveness of the transformations from the augmentation pipeline where shading and brightness conditions are altered.
+Training, validation, and eventually test data, run through a common pipeline that comprises:
++ **YUV colorspace transformation**: the images are converted from RGB to YUV colorspace, after the augmentation pipeline in the training phase, and during collection (within `drive.py`) in the testing phase. This is accomplished with the helper method `out_of_pipeline_preprocessing` in `data_manipulation.py`. The YUV colorspace was used in [NVIDIA's](https://devblogs.nvidia.com/parallelforall/deep-learning-self-driving-cars/) end-to-end deep learning for self-driving cars project. This election is supported by the added robustness that this colorspace provides for detecting features in images for automotive applications, since varying lighting conditions are isolated effectively by the *luma* Y channel, from the color information enclosed in the U and V channels. The usage of this colorspace could somehow reduce the effectiveness of the brightness transformation augmentation-step.
 
-+ **Image cropping**: as seen in the image bellow, the raw frames collected by the camera have regions that provide little information of interest and just add noise; that is the landscape above the horizon of the lane, and the bonnet of the car. Cropping the top 50 rows and bottom 25 rows of pixels of the original image can help the model focus on extracting the important lane features. This step is performed within the model with a Keras `Cropping2D` layer:
++ **Image cropping**: as seen in the image bellow, the raw frames collected by the camera have regions that provide little information and potentially just add noise; that is the landscape above the horizon of the lane, and the bonnet of the car. Cropping the top 60 rows and bottom 25 rows of pixels of the original image (160 x 320) can help the model focus on extracting the important lane features. This step is performed within the model with a Keras `Cropping2D` layer:
 ```python
-model.add(Cropping2D(cropping=((50,25), (0,0)), input_shape=(160,320,3)))
+model.add(Cropping2D(cropping=((60,25), (0,0)), input_shape=(160,320,3)))
 ```
 
 ![raw_frame]
@@ -185,11 +185,11 @@ model.add(Lambda(lambda x: (x / 255.0) - 0.5))
 
 This architecture could be fairly over-dimensioned for the scope of this project: the data is collected from a circuit which is flat, does not have U-turns, tarmac texture is relatively constant, and most importantly, there are not any obstacles whatsoever in the path, e.g., other cars circulating.
 
-Auto-driving on **track 1** is relatively easy. First of all because the morfphology and casuistry from this track is not very complex. Secondly, because the model has been trained on the same circuit, so it is basically a case of **in-sample testing**, which is not the most rigorous way to assess the performance of a model
+Auto-driving on **track 1** is relatively easy. First of all because the morphology and casuistry from this track is not very complex. Secondly, because the model has been trained on the same circuit, so it is basically a case of **in-sample testing**, which is not the most rigorous way to assess the performance of a model.
 
 The first dense layer of 1164 neurons was removed. Testing on track 1 architectures with less convolution layers and added max pooling layers yielded very satisfactory results on this track, but were not flexible enough to generalize the hard recovery situations from track 1 to get over the U-turns in track 2.
 
-Taking this into account, the following architecture is used:
+Taking this into account, the architecture that best performed on both tracks is:
 ```python
 def build_Nvidia_Modified(model):
     model.add(Conv2D(24, kernel_size=(5, 5), strides=(2, 2), activation="relu"))
@@ -203,28 +203,27 @@ def build_Nvidia_Modified(model):
     model.add(Dense(10, activation='relu'))
     model.add(Dense(1))
 ```
-As said, it imitates NVIDIA's original architecture, but without the first 1164-neuron dense layer.
+As said, it imitates NVIDIA's original architecture, but without the first 1164-neuron dense layer. Non-linearities are introduced using ReLU activations.
 
 ---
 
 **NOTE**:
-A smaller regularized model is included in `model.py`, instantiated with the method `build_Smaller()`. This model can drive perfectly around track 1, but not on track 2.
+A smaller regularized model is included in `model.py`, instantiated with the method `build_Smaller()`. This model can auto-drive perfectly around track 1, but not on track 2.
 
 ---
 
 ## Model training
 
-The balanced data set is split into a training and a validation set, following a 80-20 proportion respectively.
+The balanced data set is split into a training and a validation set, following a 80-20 proportion.
 
 As described, during the training phase, the training data is augmented real-time with the `batch_generator` defined in `data_manipulation.py`. Validation data is also fed into the training algorithm via `batch_generator`, but in this case only image flipping is enabled.
 
-The objective loss function to minimize is the **mean squared error** over the training set. This function is optimized using
-**Adam**, a method that computes adaptive learning rates for each parameter.
+The objective loss function to minimize is the **mean squared error** over the training set. This function is optimized using **Adam**, a method that computes adaptive learning rates for each parameter.
 
 ---
 
 **IMPORTANT NOTE**:
-Many combinations of dropout on dense layers, and L2 penalty on the dense layers and convolution kernels were tested. However, they ended up rigidizing the model in a way it could not drive through track 2 entirely without failing in the U-turns and/or the S-shaped slopes. Hence, the model was finally trained without regularization.
+Many combinations of **dropout** (0.5 - 1) on dense layers, and **L2 penalty** (several logarithmic scales: -1 to -4) on the dense layers and convolution kernels were tested. However, they ended up rigidizing the model in a way it could not drive through track 2 entirely without failing in the U-turns and/or the S-shaped slopes. Hence, the final model was finally trained without regularization.
 
 ---
 
@@ -240,14 +239,14 @@ model.fit_generator(
 )
 ```
 
-In order to extract the maximum benefit of data augmentation, in each epoch the training data is stepped 6 times (recall the 2x and 3x augmentations provided by flipping and camera selection respectively) while the validation data is stepped through 2 times (2x flipping augmentation).
+In order to extract the maximum benefit of data augmentation, in each epoch the training data is stepped through 6 times (recall the 2x and 3x augmentations provided by flipping and camera selection respectively) while the validation data is stepped through 2 times (2x flipping augmentation).
 
 
 ## Results
 
 ![sample_gif]
 
-The trained model managed to drive successfully around both tracks. The solution video files of the car driving a whole lap in autonomous mode for track 1 and 2 are included in this repo, `video_track1_autodrive.mp4` and `video_track2_autodrive.mp4` respectively.
+The trained model managed to drive successfully around both tracks. The solution video files of the car driving a whole lap in autonomous mode for track 1 and 2 are included in this repo: `video_track1_autodrive.mp4` and `video_track2_autodrive.mp4` respectively.
 
 The gif above shows one of the critical sections of track 2 (corresponding to minute 4:37 of video 2): a U-curve where another stretch of road can be seen in the horizon due to difference of level. The car could easilly think it should keep driving towards the road in the horizon, but does not, as intended.
 
