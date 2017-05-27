@@ -7,6 +7,9 @@
 [gamma]: ./examples/gamma.png 
 [raw_frame]: ./examples/raw_frame.png 
 [cropped_frame]: ./examples/cropped_frame.png 
+[centered_driving]: ./examples/centered_driving.JPG 
+[hard_recovery]: ./examples/hard_recovery.JPG 
+[nvidia_architecture]: ./examples/nvidia_architecture.png 
 
 
 The goal of this project is to train a convolutional neural network (**CNN**) based model, using an **end-to-end** approach: raw pixels from a front-facing camera are mapped to the steering commands for a self-driving car.
@@ -24,11 +27,13 @@ The project includes the following files:
 | `model.h5`                   | Contains the trained model outputed in `model.py`  |
 | `drive.py`                   | In autonomous mode, it communicates with the driving simulator guiding the car based on real time predictions provided by `model.h5`. |
 
-The model is built, trained and saved executing: 
+### Details about the files
+
+The model is built, trained and saved with the following command: 
 ```sh
 python model.py
 ```
-and once the simulator app is set to *Autonomous Mode*, the prediction stream is established with the following instruction:
+and once the simulator app is set to *Autonomous Mode*, the prediction stream is established executing:
 ```sh
 python drive.py model.h5
 ```
@@ -39,21 +44,25 @@ The driving simulator saves frames from the car's point of view corresponding to
 
 The training data for the CNN is collected from **track 1**. The car is driven *safelly* around the track, always focusing on keeping the car in the center of the lane.
 
+![centered_driving]
+
 To help the model generalize better, the following actions are performed during data collection:
 + Completing laps in both **clockwise** and **counter-clockwise** directions, accomplishing a higher balance of left/right curves.
-+ **Recovery** scenarios are recorded: taking the car intentionally out of the path and recording the *just* the recovery maneuver. This will increase the model's robustness against perturbations.
++ Record forced **recovery scenarios**: taking the car intentionally out of the path and recording *just* the recovery maneuver. This will increase the model's robustness against perturbations and help the model learn to take U-turns, despite there are none in this circuit.
 
-As mentioned, the aim is to train the model to be able to map raw image inputs to steering angles.
+![hard_recovery]
+
++ Drive extra laps **just recording** through **curves**.
 
 ## Data balancing
 
-Despite of taking care of driving the car around the track in both directions and recording recovery maneuvers, the dataset is still highly unbalanced:
+In spite of following the described methodology for data collection, the dataset is still unbalanced:
 
 ![unbalanced_hist]
 
-According to the figure above, if trained with the dataset as is, the model would tend to drive in a straight line, something that we want to avoid.
+According to the figure above, if trained with the dataset as is, the model be biased to driving in a straight line, something that we want to avoid.
 
-Balancing is performed by sublampling the dataset; the samples are binned based on the **absolute value** of the steering angle, and bin size is restricted to be lower than an amount `thresh`:
+Balancing is performed by sublampling the dataset; the samples are binned based on the **absolute value** of the steering angle, and bin size is restricted to be lower than an given amount `thresh`:
 
 ```python
 def balance_dataset(dataset, num_bins, thresh='mean'):
@@ -81,7 +90,7 @@ def balance_dataset(dataset, num_bins, thresh='mean'):
     return selected_idx
 ```
 
-Using this method, the original unbalanced dataset with **8535** samples is downsampled to **2874**, now with the following distribution:
+Using this method, the original unbalanced dataset with **12146** samples is downsampled to **2537** using `num_bins=50` and `thresh=100`, now with the following distribution:
 
 ![balanced_hist]
 
@@ -89,7 +98,7 @@ Bear in mind that balancing is performed across absolute values, since applying 
 
 ## Data augmentation
 
-Tha data balancing from the latter step yielded a 2.8 k sample dataset that is clearly insufficient to train a model that could generalize well. However, the following augmentation techniques altogether enable to extend the dataset by an order of magnitude:
+Tha data balancing from the latter step yielded a 2.5k sample dataset that is clearly insufficient to train a model that could generalize well. However, the following augmentation techniques altogether enable to extend the dataset by an order of magnitude:
 + **Left and right cameras**: each collected sample includes images taken from 3 camera positions: left, center and right. During the autonomous driving stage (test) the only input will be the center camera frame. However, the lateral cameras can still be used for training (selecting position randomly) by applying a correction `corr_angle` to the associated steering angle. This increases samples by a factor of 3.
 ```python
 cameras = {
@@ -134,7 +143,7 @@ def apply_random_section_shading(img):
 
 ![random_shade]
 
-+ **Random brightness**: the brightness of the image is altered using a range of random values for gamma adjustment. The objective is also increase robustness against lighting conditions and tarmack tonalities.
++ **Random brightness**: the brightness of the image is altered using a range of random values for gamma adjustment. The objective is also increase robustness against lighting conditions and tarmac tonalities.
 ```python
 def apply_random_gamma_adjust(img, low, high):
     gamma = np.random.random_sample() * (high - low) + low
@@ -167,3 +176,64 @@ model.add(Cropping2D(cropping=((50,25), (0,0)), input_shape=(160,320,3)))
 ```python
 model.add(Lambda(lambda x: (x / 255.0) - 0.5))
 ```
+## Model architecture
+
+[NVIDIA's](https://devblogs.nvidia.com/parallelforall/deep-learning-self-driving-cars/) CNN architecture was taken as a baseline in this project.
+
+![nvidia_architecture]
+
+This architecture fairly over-dimensioned for the scope of this project: the data is collected from a circuit which is flat, does not have U-turns, tarmac texture is relatively constant, and most importantly, there are not any obstacles whatsoever in the path, e.g., other cars circulating.
+
+Auto-driving on **track 1** is relatively easy. First of all because the morfphology and casuistry from this track is not very complex. Secondly, because the model has been trained on the same circuit, so it is basically a case of **in-sample testing**, which is not the most rigorous way to assess the performance of a model
+
+The first dense layer of 1164 neurons was removed. Testing on track 1 architectures with less convolution layers and added max pooling layers yielded very satisfactory results on this track, but were not flexible enough to generalize the hard recovery situations from track 1 to get over the U-turns in track 2.
+
+Taking this into account, the following architecture is used:
+```python
+def build_Nvidia_Modified(model):
+    model.add(Conv2D(24, kernel_size=(5, 5), strides=(2, 2), activation="relu"))
+    model.add(Conv2D(36, kernel_size=(5, 5), strides=(2, 2), activation="relu"))
+    model.add(Conv2D(48, kernel_size=(5, 5), strides=(2, 2), activation="relu"))
+    model.add(Conv2D(64, kernel_size=(3, 3), activation="relu"))
+    model.add(Conv2D(64, kernel_size=(3, 3), activation="relu"))
+    model.add(Flatten())
+    model.add(Dense(100, activation='relu'))
+    model.add(Dense(50, activation='relu'))
+    model.add(Dense(10, activation='relu'))
+    model.add(Dense(1))
+```
+As said, it imitates NVIDIA's original architecture, but without the first 1164-neuron dense layer.
+
+## Model training
+
+The balanced data set iss split into a training and a validation set, following a 80-20 proportion respectively.
+
+As described, during the training phase, the training data is augmented real-time with the `batch_generator` defined in `data_manipulation.py`. Validation data is also fed into the training algorithm via `batch_generator`, but in this case only image flipping is enabled.
+
+The objective loss function to minimize is the **mean squared error** over the training set. This function is optimized using
+**Adam**, a method that computes adaptive learning rates for each parameter.
+
+---
+**IMPORTANT NOTE**:
+Many combinations of dropout on dense layers, and L2 penalty on the dense layers and convolution kernels were tested. However, they ended up rigidizing the model in a way it could not drive through track 2 entirely without failing in the U-turns and/or the S-shaped slopes. Hence, the model was finally trained without regularization.
+
+---
+
+The model successfully drove around tracks 1 and 2 after training for **5 epochs**:
+```python
+model.compile(loss='mse', optimizer='adam')
+model.fit_generator(
+    train_generator,
+    steps_per_epoch=6*train_df.shape[0]/BATCH_SIZE,
+    validation_data=valid_generator,
+    validation_steps=2*valid_df.shape[0]/BATCH_SIZE,
+    epochs=5
+)
+```
+
+In order to extract the maximum benefit of data augmentation, in each epoch the training data is stepped 6 times (recall the 2x and 3x augmentations provided by flipping and camera selection respectively) while the validation data is stepped through 2 times (2x flipping augmentation).
+
+
+## Results
+
+(TODO)
