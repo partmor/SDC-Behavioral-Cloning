@@ -10,6 +10,7 @@
 [centered_driving]: ./examples/centered_driving.jpg 
 [hard_recovery]: ./examples/hard_recovery.JPG 
 [nvidia_architecture]: ./examples/nvidia_architecture.png 
+[sample_gif]: ./examples/track2_sample_U.gif 
 
 
 The goal of this project is to train a convolutional neural network (**CNN**) based model, using an **end-to-end** approach: raw pixels from a front-facing camera are mapped to the steering commands for a self-driving car.
@@ -182,7 +183,7 @@ model.add(Lambda(lambda x: (x / 255.0) - 0.5))
 
 ![nvidia_architecture]
 
-This architecture fairly over-dimensioned for the scope of this project: the data is collected from a circuit which is flat, does not have U-turns, tarmac texture is relatively constant, and most importantly, there are not any obstacles whatsoever in the path, e.g., other cars circulating.
+This architecture could be fairly over-dimensioned for the scope of this project: the data is collected from a circuit which is flat, does not have U-turns, tarmac texture is relatively constant, and most importantly, there are not any obstacles whatsoever in the path, e.g., other cars circulating.
 
 Auto-driving on **track 1** is relatively easy. First of all because the morfphology and casuistry from this track is not very complex. Secondly, because the model has been trained on the same circuit, so it is basically a case of **in-sample testing**, which is not the most rigorous way to assess the performance of a model
 
@@ -204,9 +205,16 @@ def build_Nvidia_Modified(model):
 ```
 As said, it imitates NVIDIA's original architecture, but without the first 1164-neuron dense layer.
 
+---
+
+**NOTE**:
+A smaller regularized model is included in `model.py`, instantiated with the method `build_Smaller()`. This model can drive perfectly around track 1, but not on track 2.
+
+---
+
 ## Model training
 
-The balanced data set iss split into a training and a validation set, following a 80-20 proportion respectively.
+The balanced data set is split into a training and a validation set, following a 80-20 proportion respectively.
 
 As described, during the training phase, the training data is augmented real-time with the `batch_generator` defined in `data_manipulation.py`. Validation data is also fed into the training algorithm via `batch_generator`, but in this case only image flipping is enabled.
 
@@ -216,7 +224,6 @@ The objective loss function to minimize is the **mean squared error** over the t
 ---
 **IMPORTANT NOTE**:
 Many combinations of dropout on dense layers, and L2 penalty on the dense layers and convolution kernels were tested. However, they ended up rigidizing the model in a way it could not drive through track 2 entirely without failing in the U-turns and/or the S-shaped slopes. Hence, the model was finally trained without regularization.
-
 ---
 
 The model successfully drove around tracks 1 and 2 after training for **5 epochs**:
@@ -236,4 +243,10 @@ In order to extract the maximum benefit of data augmentation, in each epoch the 
 
 ## Results
 
-(TODO)
+![sample_gif]
+
+The trained model managed to drive successfully around both tracks. The solution video files of the car driving a whole lap in autonomous mode for track 1 and 2 are included in this repo, `video_track1_autodrive.mp4` and `video_track2_autodrive.mp4` respectively.
+
+The gif above shows one of the critical sections of track 2 (corresponding to minute 4:37 of video 2): a U-curve where another stretch of road can be seen in the horizon due to difference of level. The car could easilly think it should keep driving towards the road in the horizon, but does not, as intended.
+
+Also, here are the YouTube links for [video 1](https://www.youtube.com/watch?v=Z_lVspkamDQ) and [video 2](https://www.youtube.com/watch?v=G6kER9xW_OQ).
