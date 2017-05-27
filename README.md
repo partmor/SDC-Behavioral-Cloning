@@ -222,8 +222,10 @@ The objective loss function to minimize is the **mean squared error** over the t
 **Adam**, a method that computes adaptive learning rates for each parameter.
 
 ---
+
 **IMPORTANT NOTE**:
 Many combinations of dropout on dense layers, and L2 penalty on the dense layers and convolution kernels were tested. However, they ended up rigidizing the model in a way it could not drive through track 2 entirely without failing in the U-turns and/or the S-shaped slopes. Hence, the model was finally trained without regularization.
+
 ---
 
 The model successfully drove around tracks 1 and 2 after training for **5 epochs**:
