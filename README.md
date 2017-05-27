@@ -7,7 +7,7 @@
 [gamma]: ./examples/gamma.png 
 [raw_frame]: ./examples/raw_frame.png 
 [cropped_frame]: ./examples/cropped_frame.png 
-[centered_driving]: ./examples/centered_driving.JPG 
+[centered_driving]: ./examples/centered_driving.jpg 
 [hard_recovery]: ./examples/hard_recovery.JPG 
 [nvidia_architecture]: ./examples/nvidia_architecture.png 
 
