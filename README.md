@@ -17,6 +17,8 @@ The goal of this project is to train a convolutional neural network (**CNN**) ba
 
 The data of *good driving behaviour* is collected driving a car around a track in a [simulator](https://github.com/udacity/self-driving-car-sim). A CNN built with [Keras](https://keras.io/) is trained with the latter data to predict steering angles from images. Eventually this model is assessed by testing it successfully drives around the track without leaving the road.
 
+![sample_gif]
+
 ## Project structure
 
 The project includes the following files:
